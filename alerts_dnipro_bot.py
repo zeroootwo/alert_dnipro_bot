@@ -12,21 +12,31 @@ API_KEY = os.getenv("API_KEY")
 
 bot = Bot(token=TOKEN)
 
+
 async def main():
     alerts_client = AsyncAlertsClient(API_KEY)
-    last_status=await alerts_client.get_air_raid_alert_status("9")
-    print(f"Бот запущен. Текущий статус в Днепре: {last_status}")
+    async def is_city_alert():
+        active_alerts = await alerts_client.get_active_alerts()
+        return any(
+            alert.location_title == "Дніпро" and alert.location_type == "city"
+            for alert in active_alerts
+        )
+    last_status = await is_city_alert()
+    print(f"Бот запущен. Статус города Днепр: {'ТРЕВОГА' if last_status else 'ОТБОЙ'}")
     while True:
         try:
-            current_status=await alerts_client.get_air_raid_alert_status("9")
+            current_status = await is_city_alert()
             if current_status != last_status:
                 if current_status is True:
-                    await bot.send_message(CHAT_ID, "**УВАГА! Повітряна тривога у Дніпрі! Негайно пройти у найближче укриття!**")
+                    await bot.send_message(CHAT_ID, "🚨 **УВАГА! Повітряна тривога саме у ДНІПРІ!**", parse_mode="Markdown")
                 else:
-                    await bot.send_message(CHAT_ID, "**Відбій повітряної тривоги!**")
-                last_status=current_status
+                    if last_status is True:
+                        await bot.send_message(CHAT_ID, "✅ **Відбій у місті Дніпро!**", parse_mode="Markdown")
+                last_status = current_status
+                print(f"Статус города изменился: {last_status}")
+
         except Exception as e:
-            print(f"Проблема с API или сетью: {e}. Пробуем езе раз...")
-        await asyncio.sleep(30)
+            print(f"Ошибка API или сети: {e}. Пробуем еще раз...")
+        await asyncio.sleep(25)
 if __name__ == "__main__":
     asyncio.run(main())
