@@ -34,15 +34,11 @@ async def main():
         active_alerts = await alerts_client.get_active_alerts()
         return any("Дніпр" in str(a.location_title) for a in active_alerts)
 
-    @dp.message(F.text == "🔎 Перевірити тривогу наразі")
+    @dp.message(F.text == "/status")
     async def manual_check(message: types.Message):
         status = shared_data["is_alert"]
         text = "🚨 У Дніпрі наразі ТРИВОГА! 🚨" if status else "✅ У Дніпрі наразі ВІДБІЙ ✅"
-        await message.answer(text, reply_markup=keyboard)
-
-    @dp.message(F.text == "/start")
-    async def cmd_start(message: types.Message):
-        await message.answer("🔎 Моніторинг запущений.", reply_markup=keyboard)
+        await message.answer(text)
 
     asyncio.create_task(dp.start_polling(bot))
     kiev_tz = pytz.timezone('Europe/Kyiv')
@@ -53,21 +49,27 @@ async def main():
         try:
             logger.info("🔍 Запрос к API...")
             current_status = await is_dnipro_alert()
+            shared_data["is_alert"] = current_status
             now=datetime.now(kiev_tz).strftime("%H:%M")
-            if first_run or current_status != last_status:
+            if first_run:
+                if current_status:
+                    logger.info(f"🚀 Бот запущен. Сейчас в Днепре ТРЕВОГА 🚨")
+                else:
+                    logger.info(f"🚀 Бот запущен. Сейчас в Днепре ТИХО ✅")
+                last_status = current_status
+                first_run = False
+                await asyncio.sleep(25)
+                continue
+            if current_status != last_status:
                 if current_status:
                     message=f"🚨 УВАГА! Повітряна тривога!\nНегайно пройти в найближче укриття! 🚨{now}"
                     await bot.send_message(CHAT_ID, text=message )
                     logger.info("Сообщение о тревоге отправлено")
-                elif not first_run:
+                else:
                         message=f"✅ УВАГА! Відбій ✅{now}"
                         await bot.send_message(CHAT_ID, text=message)
                         logger.info("Сообщение о отбое отправлено")
-                else:
-                    logger.info(f"🚀 Бот запущен. Сейчас в Днепре ТИХО")
                 last_status = current_status
-                first_run = False
-                logger.info("Первый запуск прошел успешно!")
             await asyncio.sleep(25)
         except Exception as e:
             error_msg = str(e)
