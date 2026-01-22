@@ -5,7 +5,7 @@ import pytz
 from datetime import datetime
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.filters import Command
 from alerts_in_ua import AsyncClient as AsyncAlertsClient
 
 logging.basicConfig(
@@ -24,8 +24,6 @@ API_KEY = os.getenv("API_KEY")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="🔎 Перевірити тривогу наразі")]], resize_keyboard=True)
-
 async def main():
     alerts_client = AsyncAlertsClient(token=API_KEY)
     shared_data = {"is_alert": False}
@@ -34,7 +32,7 @@ async def main():
         active_alerts = await alerts_client.get_active_alerts()
         return any("Дніпр" in str(a.location_title) for a in active_alerts)
 
-    @dp.message(F.text == "/status")
+    @dp.message(Command("status"))
     async def manual_check(message: types.Message):
         status = shared_data["is_alert"]
         text = "🚨 У Дніпрі наразі ТРИВОГА! 🚨" if status else "✅ У Дніпрі наразі ВІДБІЙ ✅"
