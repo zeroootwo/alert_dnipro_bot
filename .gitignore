@@ -2,3 +2,4 @@
 .env
 .venv/
 clean.py
+chats.db
