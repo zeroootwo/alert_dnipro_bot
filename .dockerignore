@@ -5,3 +5,4 @@ venv/
 .idea/
 README.md
 clean.py
+chats.db
