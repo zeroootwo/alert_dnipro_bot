@@ -5,7 +5,7 @@ import pytz
 import aiosqlite
 from datetime import datetime
 from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from alerts_in_ua import AsyncClient as AsyncAlertsClient
 
@@ -30,82 +30,77 @@ async def add_chat(chat_id):
         await db.execute("INSERT OR IGNORE INTO chats (chat_id) VALUES (?)", (chat_id,))
         await db.commit()
 
-async def remove_chat(chat_id):
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("DELETE FROM chats WHERE chat_id = ?", (chat_id,))
-        await db.commit()
-
 async def get_all_chats():
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute("SELECT chat_id FROM chats") as cursor:
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
 
-@dp.my_chat_member()
-async def on_my_chat_member(event: types.ChatMemberUpdated):
-    if event.new_chat_member.status in ["member", "administrator"]:
-        await add_chat(event.chat.id)
-        logger.info(f"➕ Бот добавлен в чат {event.chat.id}")
-    elif event.new_chat_member.status in ["left", "kicked"]:
-        await remove_chat(event.chat.id)
-        logger.info(f"➖ Бот удален из чата {event.chat.id}")
-
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     await add_chat(message.chat.id)
-    await message.answer("🛡️ **Dnipro Alert Bot активований!**\nТепер я буду надсилати сповіщення про тривоги в цей чат")
-
-@dp.message(Command("status"))
-async def manual_check(message: types.Message, shared_data: dict):
-    status = shared_data["is_alert"]
-    text = "🚨 У Дніпрі наразі ТРИВОГА! 🚨" if status else "✅ У Дніпрі наразі ВІДБІЙ ✅"
-    await message.answer(text)
+    await message.answer("Бот запущен!")
 
 async def main():
     await init_db()
     alerts_client = AsyncAlertsClient(token=API_KEY)
     shared_data = {"is_alert": False}
-    dp["shared_data"] = shared_data
+
     async def is_dnipro_alert():
-        try:
-            active_alerts = await alerts_client.get_active_alerts()
-            return any("Дніпр" in str(a.location_title) for a in active_alerts)
-        except Exception as e:
-            logger.error(f"Ошибка API: {e}")
-            return None
+        logger.info("Запрос к API") 
+        active_alerts = await alerts_client.get_active_alerts()
+        return any("Дніпр" in str(a.location_title) for a in active_alerts)
+        
+    @dp.message(Command("status"))
+    async def manual_check(message: types.Message):
+        status = shared_data["is_alert"]
+        text = "🚨 У Дніпрі наразі ТРИВОГА! 🚨" if status else "✅ У Дніпрі наразі ВІДБІЙ ✅"
+        await message.answer(text)
+        
     asyncio.create_task(dp.start_polling(bot))
     kiev_tz = pytz.timezone('Europe/Kyiv')
     last_status = None
     first_run = True
-    logger.info("🚀 Бот запускается...")
     while True:
-        current_status = await is_dnipro_alert()
-        if current_status is None:
-            await asyncio.sleep(30)
-            continue
-        shared_data["is_alert"] = current_status
-        now = datetime.now(kiev_tz).strftime("%H:%M")
-        if first_run:
-            last_status = current_status
-            first_run = False
-            logger.info(f"Первая проверка: {'ТРЕВОГА' if current_status else 'ТИХО'}")
+        try:
+            current_status = await is_dnipro_alert()
+            if current_status is None:
+                await asyncio.sleep(30)
+                continue
+            shared_data["is_alert"] = current_status
+            now = datetime.now(kiev_tz).strftime("%H:%M")
+            if first_run:
+                if current_status:
+                    logger.info(f"🚀 Бот запущен. Сейчас в Днепре ТРЕВОГА 🚨")
+                else:
+                    logger.info(f"🚀 Бот запущен. Сейчас в Днепре ТИХО ✅")
+                last_status = current_status
+                first_run = False
+                await asyncio.sleep(25)
+                continue
+            if current_status != last_status:
+                chats = await get_all_chats()
+                if current_status:
+                    message_text = f"🚨 УВАГА! Повітряна тривога!\nНегайно пройти в найближче укриття! 🚨 {now}"
+                    logger.info("Сообщение о тревоге отправлено")
+                else:
+                    message_text = f"✅ УВАГА! Відбій ✅ {now}"
+                    logger.info("Сообщение о отбое отправлено")
+                for chat_id in chats:
+                    try:
+                        await bot.send_message(chat_id, text=message_text)
+                    except Exception as e:
+                        logger.error(f"Ошибка отправки: {e}")
+                last_status = current_status
             await asyncio.sleep(25)
-            continue
-        if current_status != last_status:
-            chats = await get_all_chats()
-            if current_status:
-                text = f"🚨 **УВАГА! Повітряна тривога!**\nНегайно пройти в найближче укриття! 🚨\n📍{now}"
+        except Exception as e:
+            error_msg = str(e)
+            if "Limit" in error_msg or "429" in error_msg:
+                logger.error(f"🛑 Превышен лимит запитов! Спим 10 минут... ({error_msg})")
+                await asyncio.sleep(600)
             else:
-                text = f"✅ **ВІДБІЙ тривоги!** ✅\n📍{now}"
-            for chat_id in chats:
-                try:
-                    await bot.send_message(chat_id, text=text, parse_mode="Markdown")
-                except Exception as e:
-                    logger.error(f"Не удалось отправить в {chat_id}: {e}")
-            last_status = current_status
-        await asyncio.sleep(25)
+                logger.error(f"❌ Ошибка: {error_msg}")
+                await asyncio.sleep(30)
+                
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logger.warning("🤖 Бот остановлен.")
+    asyncio.run(main())
