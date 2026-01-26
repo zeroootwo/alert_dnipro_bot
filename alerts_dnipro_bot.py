@@ -41,6 +41,14 @@ async def start_cmd(message: types.Message):
     await add_chat(message.chat.id)
     await message.answer("🛡️ Dnipro Alert Bot активований!\nТепер я буду надсилати сповіщення про тривоги в цей чат")
 
+@dp.my_chat_member()
+async def on_my_chat_member(event: types.ChatMemberUpdated):
+    if event.new_chat_member.status in ["member", "administrator"]:
+        await add_chat(event.chat.id)
+        logger.info(f"➕ БОТ ДОДАНИЙ В ЧАТ: {event.chat.id} ({event.chat.title})")
+    elif event.new_chat_member.status in ["left", "kicked"]:
+        logger.info(f"➖ БОТ ВИДАЛЕНИЙ З ЧАТУ: {event.chat.id}")
+
 async def main():
     await init_db()
     alerts_client = AsyncAlertsClient(token=API_KEY)
