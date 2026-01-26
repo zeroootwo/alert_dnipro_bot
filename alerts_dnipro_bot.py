@@ -39,7 +39,7 @@ async def get_all_chats():
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     await add_chat(message.chat.id)
-    await message.answer("Бот запущен!")
+    await message.answer("🛡️ Dnipro Alert Bot активований!\nТепер я буду надсилати сповіщення про тривоги в цей чат")
 
 async def main():
     await init_db()
